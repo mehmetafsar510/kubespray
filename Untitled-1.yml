@@ -1,0 +1,30 @@
+#! /bin/bash -xe
+apt-get update -y
+apt-get upgrade -y
+apt-get -y install linux-image-generic-hwe-18.04
+apt-get install -y sshpass
+hostnamectl set-hostname kube20-master
+ssh-keygen -b 2048 -t rsa -f ~/.ssh/id_rsa -q -N ""
+sed -ie 's/PasswordAuthentication no/PasswordAuthentication yes/g' /etc/ssh/sshd_config
+sed -ie 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/g' /etc/ssh/sshd_config
+systemctl restart sshd.service
+echo wordpress > /home/ubuntu/password.txt
+echo "root:wordpress" | chpasswd
+su -c "sshpass -f /home/ubuntu/password.txt ssh-copy-id root@kube20-master -o StrictHostKeyChecking=no"
+apt -y install python3-pip
+cd /home/ubuntu/
+git clone https://github.com/kubernetes-sigs/kubespray.git
+cd /home/ubuntu/kubespray
+pip3 install -r requirements.txt
+cp -rfp inventory/sample inventory/myclusteru
+PRVT=$(curl ifconfig.me)
+declare -a IPS=($PRVT)
+CONFIG_FILE=inventory/mycluster/hosts.yaml python3 contrib/inventory_builder/inventory.py $IPS
+sed -ie 's/node1/kube20-master/g' inventory/mycluster/hosts.yaml
+sed -ie 's/PasswordAuthentication yes/PasswordAuthentication no/g' /etc/ssh/sshd_config
+sed -ie 's/PermitRootLogin yes/#PermitRootLogin prohibit-password/g' /etc/ssh/sshd_config
+systemctl restart sshd.service
+ansible-playbook -i inventory/mycluster/hosts.yaml --become --become-user=root cluster.yml
+curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
+chmod 700 get_helm.sh
+./get_helm.sh
